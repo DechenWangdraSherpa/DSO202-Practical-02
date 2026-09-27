@@ -1,0 +1,158 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"apps/v1","kind":"StatefulSet","metadata":{"annotations":{},"labels":{"app":"webnote","dso202/managed-by":"declarative","dso202/practical":"02","tier":"frontend"},"name":"webnote","namespace":"dso202-practical-02"},"spec":{"minReadySeconds":5,"persistentVolumeClaimRetentionPolicy":{"whenDeleted":"Retain","whenScaled":"Retain"},"podManagementPolicy":"OrderedReady","replicas":3,"revisionHistoryLimit":5,"selector":{"matchLabels":{"app":"webnote"}},"serviceName":"webnote","template":{"metadata":{"labels":{"app":"webnote","dso202/managed-by":"declarative","dso202/practical":"02","tier":"frontend"}},"spec":{"containers":[{"image":"nginx:1.31-alpine","imagePullPolicy":"IfNotPresent","livenessProbe":{"failureThreshold":3,"httpGet":{"path":"/","port":"http"},"initialDelaySeconds":10,"periodSeconds":10},"name":"nginx","ports":[{"containerPort":80,"name":"http","protocol":"TCP"}],"readinessProbe":{"failureThreshold":3,"httpGet":{"path":"/","port":"http"},"initialDelaySeconds":3,"periodSeconds":5},"resources":{"limits":{"cpu":"200m","memory":"64Mi"},"requests":{"cpu":"50m","memory":"32Mi"}},"volumeMounts":[{"mountPath":"/usr/share/nginx/html","name":"content"}]}],"initContainers":[{"args":["set -eu\n# Written once, on the first Pod ever to use this volume. Its\n# survival across Pod deletions is the proof that the volume, and\n# not the Pod, holds the data.\nif [ ! -f /data/index.html ]; then\n  echo \"\u003ch2\u003e${POD_NAME}\u003c/h2\u003e\" \u003e /data/index.html\n  echo \"created: $(date -u +%Y-%m-%dT%H:%M:%SZ) on ${NODE_NAME}\" \u003e\u003e /data/index.html\nfi\n# Appended on every start, so the file records its own history.\necho \"started: $(date -u +%Y-%m-%dT%H:%M:%SZ) on ${NODE_NAME}\" \u003e\u003e /data/index.html\n"],"command":["/bin/sh","-c"],"env":[{"name":"POD_NAME","valueFrom":{"fieldRef":{"fieldPath":"metadata.name"}}},{"name":"NODE_NAME","valueFrom":{"fieldRef":{"fieldPath":"spec.nodeName"}}}],"image":"busybox:1.37","imagePullPolicy":"IfNotPresent","name":"seed-content","resources":{"limits":{"cpu":"100m","memory":"64Mi"},"requests":{"cpu":"25m","memory":"32Mi"}},"volumeMounts":[{"mountPath":"/data","name":"content"}]}],"terminationGracePeriodSeconds":10}},"updateStrategy":{"rollingUpdate":{"partition":0},"type":"RollingUpdate"},"volumeClaimTemplates":[{"metadata":{"labels":{"app":"webnote","dso202/managed-by":"declarative","dso202/practical":"02","tier":"frontend"},"name":"content"},"spec":{"accessModes":["ReadWriteOnce"],"resources":{"requests":{"storage":"1Gi"}},"storageClassName":"standard"}}]}}
+  creationTimestamp: "2026-09-27T19:05:26Z"
+  generation: 1
+  labels:
+    app: webnote
+    dso202/managed-by: declarative
+    dso202/practical: "02"
+    tier: frontend
+  name: webnote
+  namespace: dso202-practical-02
+  resourceVersion: "17347"
+  uid: ac537426-d4a1-46e3-9d45-3e830dc5c731
+spec:
+  minReadySeconds: 5
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 3
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: webnote
+  serviceName: webnote
+  template:
+    metadata:
+      labels:
+        app: webnote
+        dso202/managed-by: declarative
+        dso202/practical: "02"
+        tier: frontend
+    spec:
+      containers:
+      - image: nginx:1.31-alpine
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: nginx
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 3
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 200m
+            memory: 64Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /usr/share/nginx/html
+          name: content
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - args:
+        - |
+          set -eu
+          # Written once, on the first Pod ever to use this volume. Its
+          # survival across Pod deletions is the proof that the volume, and
+          # not the Pod, holds the data.
+          if [ ! -f /data/index.html ]; then
+            echo "<h2>${POD_NAME}</h2>" > /data/index.html
+            echo "created: $(date -u +%Y-%m-%dT%H:%M:%SZ) on ${NODE_NAME}" >> /data/index.html
+          fi
+          # Appended on every start, so the file records its own history.
+          echo "started: $(date -u +%Y-%m-%dT%H:%M:%SZ) on ${NODE_NAME}" >> /data/index.html
+        command:
+        - /bin/sh
+        - -c
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        image: busybox:1.37
+        imagePullPolicy: IfNotPresent
+        name: seed-content
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 25m
+            memory: 32Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          name: content
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 10
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      labels:
+        app: webnote
+        dso202/managed-by: declarative
+        dso202/practical: "02"
+        tier: frontend
+      name: content
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+      storageClassName: standard
+      volumeMode: Filesystem
+    status:
+      phase: Pending
+status:
+  availableReplicas: 3
+  collisionCount: 0
+  currentReplicas: 3
+  currentRevision: webnote-7f67dd4f6b
+  observedGeneration: 1
+  readyReplicas: 3
+  replicas: 3
+  updateRevision: webnote-7f67dd4f6b
+  updatedReplicas: 3
