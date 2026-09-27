@@ -1,0 +1,43 @@
+# =============================================================================
+# File        : manifests/04-pvc-static.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : Request storage. The control plane binds this claim to any
+#               Available volume whose class name, capacity and access modes
+#               satisfy it - here, the volume from Listing 5.
+# Apply with  : kubectl apply -f manifests/04-pvc-static.yaml
+# Inspect     : kubectl get pvc
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # Claims are namespaced, unlike the volumes they bind to. A Pod can only use
+  # a claim in its own namespace.
+  name: pvc-web-static
+  namespace: dso202-practical-02
+  labels:
+    app: static-writer
+    tier: storage-demo
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  # Must be satisfied by the volume's access modes, not merely equal to them.
+  accessModes:
+    - ReadWriteOnce
+
+  # Must equal the storageClassName on the volume. Three values behave
+  # differently and the distinction is examinable:
+  #   storageClassName: manual  -> match a volume whose class name is 'manual'
+  #   storageClassName: ""      -> match only volumes with no class at all, and
+  #                                explicitly refuse the cluster default class
+  #   field omitted             -> use the cluster's default StorageClass
+  storageClassName: manual
+
+  # The minimum acceptable size. A volume of exactly this size or larger may
+  # bind; the claim then reports the volume's capacity, not the request.
+  resources:
+    requests:
+      storage: 1Gi
+
+  # 'volumeName: pv-web-static' could be added here to demand one specific
+  # volume. It is deliberately omitted so that the matching rules above are the
+  # mechanism that produces the binding.

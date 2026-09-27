@@ -1,0 +1,41 @@
+# =============================================================================
+# File        : manifests/02-storageclass-retain.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : A second StorageClass whose volumes survive deletion of their
+#               claim. Used by the database in Listing 16.
+# Apply with  : kubectl apply -f manifests/02-storageclass-retain.yaml
+# Inspect     : kubectl get storageclass
+# =============================================================================
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  # StorageClasses are cluster-scoped: no 'namespace:' field, and the name must
+  # be unique across the cluster. Claims in any namespace may reference it.
+  name: dso202-retain
+  labels:
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+
+# The component that will create the storage. It must actually be running in
+# the cluster, otherwise claims naming this class stay Pending forever. This
+# value is the provisioner kind installs. On a managed cluster it would name a
+# CSI driver instead, for example ebs.csi.aws.com or pd.csi.storage.gke.io.
+provisioner: rancher.io/local-path
+
+# Every PersistentVolume this class creates inherits this policy. Retain means
+# that deleting the claim leaves the volume, and the data, in place. The volume
+# enters the Released phase and must be dealt with by an administrator. This is
+# the standard choice for a database, where an accidental deletion of a claim
+# must not be able to destroy the data.
+reclaimPolicy: Retain
+
+# WaitForFirstConsumer delays the choice of storage until a Pod that needs the
+# claim has been scheduled, so that the volume is created on the node where the
+# Pod will actually run. The alternative, Immediate, would risk creating the
+# volume on a node the Pod cannot be placed on.
+volumeBindingMode: WaitForFirstConsumer
+
+# Stated explicitly, and false, because this provisioner cannot grow a volume.
+# Attempting to enlarge a claim on this class is rejected by the API server.
+# A production class for a database would normally set this to true.
+allowVolumeExpansion: false

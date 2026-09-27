@@ -1,0 +1,92 @@
+# =============================================================================
+# File        : manifests/08-deployment-shared-pvc.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : DELIBERATELY WRONG. A Deployment cannot give each replica its
+#               own volume, because the claim is named once in the Pod template
+#               and every replica uses that template. This file exists so that
+#               the failure can be observed before StatefulSets are introduced.
+#               It must not be used as a model for any assessed configuration.
+# Apply with  : kubectl apply -f manifests/08-deployment-shared-pvc.yaml
+# Read with   : kubectl exec deploy/shared-writer -- cat /data/visitors.log
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shared-data
+  namespace: dso202-practical-02
+  labels:
+    app: shared-writer
+    tier: storage-demo
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shared-writer
+  namespace: dso202-practical-02
+  labels:
+    app: shared-writer
+    tier: storage-demo
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: shared-writer
+  template:
+    metadata:
+      labels:
+        app: shared-writer
+        tier: storage-demo
+        dso202/practical: "02"
+        dso202/managed-by: declarative
+    spec:
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: writer
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              # Every replica appends to the SAME file on the SAME volume.
+              # Three processes, one set of data, no ownership. A database in
+              # this position corrupts its data files.
+              echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) pod=${POD_NAME} node=${NODE_NAME}" >> /data/visitors.log
+              exec sleep infinity
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        # One claim name, written once. There is no syntax in a Deployment that
+        # would give replica 2 a different claim from replica 1. That absence
+        # is the reason StatefulSets exist.
+        - name: data
+          persistentVolumeClaim:
+            claimName: shared-data

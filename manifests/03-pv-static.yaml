@@ -1,0 +1,75 @@
+# =============================================================================
+# File        : manifests/03-pv-static.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : Describe storage that already exists to the Kubernetes API.
+#               No provisioner is involved: the directory is the host directory
+#               mounted into worker-node-1 by Listing 1.
+# Apply with  : kubectl apply -f manifests/03-pv-static.yaml
+# Inspect     : kubectl get pv
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  # PersistentVolumes are cluster-scoped: no 'namespace:' field. A claim in any
+  # namespace may bind to this volume, which is why PV creation is normally an
+  # administrator's task and not a developer's.
+  name: pv-web-static
+  labels:
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  # The size reported to any claim that binds to this volume. This provisioner
+  # does not enforce it; a Pod can write until the node disk is full. The value
+  # is still required, because it is one of the fields a claim is matched on.
+  capacity:
+    storage: 1Gi
+
+  # Filesystem is the default and is stated for clarity. The alternative, Block,
+  # presents a raw device to the container and is used by storage software that
+  # manages its own filesystem.
+  volumeMode: Filesystem
+
+  # ReadWriteOnce means the volume may be mounted read-write by Pods on ONE
+  # node. It does not mean one Pod. Several Pods on the same node may mount it
+  # simultaneously, which is exactly what happens in Stage 4 of the guide.
+  # ReadWriteOncePod is the mode that restricts a volume to a single Pod.
+  accessModes:
+    - ReadWriteOnce
+
+  # Retain: deleting the claim leaves this object and the underlying directory
+  # untouched. The volume enters the Released phase and cannot be bound by a
+  # new claim until an administrator intervenes.
+  persistentVolumeReclaimPolicy: Retain
+
+  # No StorageClass object with this name exists in the cluster. For a static
+  # volume the field is only a matching label between volume and claim, so the
+  # name is arbitrary; 'manual' is the widely used convention. Because no class
+  # object exists, no binding mode applies and binding happens immediately.
+  storageClassName: manual
+
+  # The directory on the node. DirectoryOrCreate asks the kubelet to create it
+  # if it is missing, rather than failing the mount.
+  #
+  # hostPath is used here because it is the clearest way to see storage as a
+  # directory on a machine. It is not suitable for production: any Pod that can
+  # mount a host path can read whatever else is at that path on the node.
+  hostPath:
+    path: /mnt/dso202-static/pv-web-static
+    type: DirectoryOrCreate
+
+  # The directory exists on one node only, so the volume declares which node it
+  # belongs to. The scheduler refuses to place a Pod using this volume anywhere
+  # else, and reports 'volume node affinity conflict' if it cannot comply.
+  #
+  # The custom label set by Listing 1 is used rather than the standard
+  # kubernetes.io/hostname key, so that this file keeps working if the fallback
+  # cluster configuration renames the nodes. Production manifests for local
+  # volumes normally use kubernetes.io/hostname.
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: dso202/node-index
+              operator: In
+              values:
+                - "1"

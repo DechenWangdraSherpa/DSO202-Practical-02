@@ -1,0 +1,164 @@
+# =============================================================================
+# File        : manifests/14-statefulset-postgres.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : A real stateful application on retained storage. One replica,
+#               because a second replica of this manifest would be a second
+#               independent database and not a copy of the first. Replication
+#               is a property of the application and is the work of an Operator
+#               (Unit II 2.4).
+# Apply with  : kubectl apply -f manifests/14-statefulset-postgres.yaml
+# Connect     : kubectl exec -it postgres-0 -- psql -U taskuser -d tasktracker
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: dso202-practical-02
+  labels:
+    app: postgres
+    tier: database
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  serviceName: postgres-headless
+  replicas: 1
+  podManagementPolicy: OrderedReady
+
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
+
+  # Retain on both counts, which is the correct setting for a database. With
+  # whenDeleted set to Delete, 'kubectl delete statefulset postgres' would
+  # destroy the data as a side effect of removing a controller.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+
+  selector:
+    matchLabels:
+      app: postgres
+
+  template:
+    metadata:
+      labels:
+        app: postgres
+        tier: database
+        dso202/practical: "02"
+        dso202/managed-by: declarative
+    spec:
+      # A database asked to stop must finish writing and close its files. Too
+      # short a grace period means the process is killed and must replay its
+      # write-ahead log on the next start, which on a large database takes far
+      # longer than a clean shutdown would have taken.
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: postgres
+          image: postgres:18-alpine
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+
+          # Every key of the Secret becomes an environment variable, keeping
+          # the credential values out of this file entirely. Individual keys
+          # could be selected instead with env[].valueFrom.secretKeyRef.
+          envFrom:
+            - secretRef:
+                name: postgres-credentials
+
+          volumeMounts:
+            # The mount path is the parent of the data directory, NOT the data
+            # directory itself.
+            #
+            # From PostgreSQL 18 onward the official image places its data in a
+            # version-numbered subdirectory, /var/lib/postgresql/18/docker, and
+            # declares /var/lib/postgresql as the volume location. Mounting
+            # here therefore puts the data inside the volume while leaving the
+            # data directory itself one level down.
+            #
+            # This matters generally, not only for this image. A freshly
+            # provisioned volume may contain entries created by the storage
+            # driver, and initdb refuses to initialise a directory that is not
+            # empty. For image tags of PostgreSQL 17 and earlier, whose data
+            # directory is /var/lib/postgresql/data, the equivalent fix is to
+            # mount at that path and add 'subPath: pgdata' to this mount.
+            - name: data
+              mountPath: /var/lib/postgresql
+
+          # Readiness decides Service membership. Until this probe passes, no
+          # connection is routed to the Pod, which is what prevents an
+          # application from failing while the database is still initialising.
+          #
+          # '-h 127.0.0.1' forces a TCP check. A check over the local socket
+          # can succeed during initialisation, while the temporary server that
+          # initdb starts is running and the real server is not yet listening.
+          # The command is run through a shell so that the environment
+          # variables from the Secret are expanded.
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 6
+
+          # Liveness restarts a database that has stopped responding. Its
+          # delay and period are deliberately longer than the readiness probe's,
+          # because restarting a database under load makes matters worse. For a
+          # database with a long initialisation, a startupProbe is added and
+          # the liveness probe's initialDelaySeconds is reduced.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+
+      # If an image runs its database process as a non-root user and does not
+      # adjust ownership itself, the volume must be made writable for that
+      # user, with:
+      #   securityContext:
+      #     fsGroup: 999
+      # The official PostgreSQL image starts as root and sets ownership of the
+      # data directory itself, so no fsGroup is needed here. A 'permission
+      # denied' error on a database volume is almost always this field missing.
+
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: postgres
+          tier: database
+          dso202/practical: "02"
+          dso202/managed-by: declarative
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        # The retaining class from Listing 4, not the cluster default. Deleting
+        # this claim leaves the volume in the Released phase with the data
+        # intact, which is the behaviour a database requires and the reason
+        # Stage 8 of the guide has extra cleanup work to do.
+        storageClassName: dso202-retain
+        resources:
+          requests:
+            storage: 2Gi

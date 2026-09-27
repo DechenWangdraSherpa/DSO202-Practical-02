@@ -1,0 +1,195 @@
+# =============================================================================
+# File        : manifests/10-statefulset-webnote.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : Three web servers, each serving a page stored on its own
+#               volume. The page records when the volume was first written and
+#               every subsequent start, so that identity and persistence can be
+#               read straight out of an HTTP response.
+# Apply with  : kubectl apply -f manifests/10-statefulset-webnote.yaml
+# Edited in   : Stage 6 of the guide - partition, then the image tag
+# =============================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: webnote
+  namespace: dso202-practical-02
+  labels:
+    app: webnote
+    tier: frontend
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  # The headless Service from Listing 11. Without a Service of this exact name,
+  # the per-Pod DNS names do not exist and the StatefulSet loses one of its four
+  # guarantees.
+  serviceName: webnote
+
+  replicas: 3
+
+  # OrderedReady is the default: Pod n+1 is not created until Pod n is Running
+  # and Ready, and termination proceeds in reverse. The alternative, Parallel,
+  # starts and stops all Pods at once. This field cannot be changed after the
+  # StatefulSet is created; Extension 2 in the guide demonstrates that.
+  podManagementPolicy: OrderedReady
+
+  # How long a Pod must stay Ready before the rollout treats it as available.
+  # Slows the update deliberately, which is what a cautious rollout wants.
+  minReadySeconds: 5
+
+  # How many old ControllerRevision objects to keep. Each revision records one
+  # version of the Pod template, which is how a StatefulSet tracks history.
+  revisionHistoryLimit: 5
+
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Update only Pods whose ordinal is greater than or equal to this value.
+      # 0 updates everything, highest ordinal first. Stage 6 sets it to 2 to
+      # update one Pod, inspects the result, then returns it to 0.
+      partition: 0
+
+  # The lifecycle of the claims this StatefulSet generates. Both fields default
+  # to Retain; both are stated because the defaults are a safety decision that
+  # a reader should see rather than assume.
+  #   whenDeleted: what happens when the StatefulSet itself is deleted
+  #   whenScaled : what happens to the claims of Pods removed by a scale-down
+  # Setting either to Delete makes an ordinary operational action destroy data.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+
+  selector:
+    matchLabels:
+      app: webnote
+
+  template:
+    metadata:
+      labels:
+        app: webnote
+        tier: frontend
+        dso202/practical: "02"
+        dso202/managed-by: declarative
+    spec:
+      terminationGracePeriodSeconds: 10
+
+      # The init container runs to completion before the nginx container is
+      # started, and it mounts the same volume. This is the standard way to
+      # prepare a volume: seed it on first use, and record the fact that a new
+      # Pod has attached to it on every use.
+      initContainers:
+        - name: seed-content
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              # Written once, on the first Pod ever to use this volume. Its
+              # survival across Pod deletions is the proof that the volume, and
+              # not the Pod, holds the data.
+              if [ ! -f /data/index.html ]; then
+                echo "<h2>${POD_NAME}</h2>" > /data/index.html
+                echo "created: $(date -u +%Y-%m-%dT%H:%M:%SZ) on ${NODE_NAME}" >> /data/index.html
+              fi
+              # Appended on every start, so the file records its own history.
+              echo "started: $(date -u +%Y-%m-%dT%H:%M:%SZ) on ${NODE_NAME}" >> /data/index.html
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            # Same volume as the nginx container below, mounted at a different
+            # path. The mount path is a property of the container, not of the
+            # volume.
+            - name: content
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+
+      containers:
+        - name: nginx
+          # Changed to nginx:1.31-alpine in Stage 6 to trigger a rollout.
+          image: nginx:1.30-alpine
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+
+          # Readiness controls Service membership. An unready Pod is removed
+          # from the headless Service's DNS records, and the StatefulSet
+          # controller waits for readiness before moving to the next ordinal.
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+
+          # Liveness restarts a container that is running but not working. Its
+          # period is longer than the readiness period on purpose: a restart is
+          # a heavier action than a removal from a Service.
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          volumeMounts:
+            # nginx serves whatever is in this directory, so mounting the
+            # volume here makes the volume's contents the website.
+            - name: content
+              mountPath: /usr/share/nginx/html
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
+
+  # -------------------------------------------------------------------------
+  # The field that distinguishes a StatefulSet from every other controller.
+  # For each ordinal the controller creates one claim from this template, named
+  #     <template name>-<statefulset name>-<ordinal>
+  # so this template produces content-webnote-0, content-webnote-1 and
+  # content-webnote-2. A replacement Pod for ordinal 1 reattaches the existing
+  # content-webnote-1 rather than creating a new claim.
+  #
+  # These claims are NOT deleted by 'kubectl delete -f' on this file, because
+  # they were never in this file. Stage 8 of the guide removes them explicitly.
+  # -------------------------------------------------------------------------
+  volumeClaimTemplates:
+    - metadata:
+        name: content
+        # Generated claims inherit only the labels written here. Without this
+        # block, 'kubectl get pvc -l app=webnote' returns nothing.
+        labels:
+          app: webnote
+          tier: frontend
+          dso202/practical: "02"
+          dso202/managed-by: declarative
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        # The default class, whose reclaim policy is Delete. Deleting these
+        # claims in Stage 8 therefore destroys the volumes and the data, which
+        # is the intended contrast with the database in Listing 16.
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 1Gi

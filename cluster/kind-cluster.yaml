@@ -1,0 +1,104 @@
+# =============================================================================
+# File        : cluster/kind-cluster.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : Three-node cluster with one host directory mounted into the
+#               first worker, so that a statically provisioned PersistentVolume
+#               can be backed by storage that outlives the cluster.
+# Apply with  : kind create cluster --config cluster/kind-cluster.yaml
+# Delete with : kind delete cluster --name dso202-p2
+# Requires    : mkdir -p /tmp/dso202-p2-storage   (run BEFORE creating the
+#               cluster; kind mounts the directory at creation time)
+# =============================================================================
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+
+# A different cluster name from Practical 1, so that the two clusters can be
+# told apart if both exist. It determines:
+#   - the Docker container names: dso202-p2-control-plane, dso202-p2-worker,
+#     dso202-p2-worker2
+#   - the kubectl context name: kind-dso202-p2
+name: dso202-p2
+
+networking:
+  # Publish the API server on the loopback interface only.
+  apiServerAddress: "127.0.0.1"
+
+  # Stated explicitly so that addresses seen in 'kubectl get pods -o wide' can
+  # be recognised as Pod addresses rather than node or Service addresses.
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/16"
+
+nodes:
+  # ---------------------------------------------------------------------------
+  # Node 1 of 3: the control-plane node.
+  # Runs kube-apiserver, etcd, kube-scheduler, kube-controller-manager, and
+  # also the kubelet and kube-proxy that every node runs. kind taints this node
+  # so that application Pods are not scheduled onto it; the taint is left in
+  # place, which is why no volume in this practical is placed here.
+  # ---------------------------------------------------------------------------
+  - role: control-plane
+
+    # Pinned by digest so that every student runs exactly Kubernetes v1.36.1
+    # and sees the output shown in the guide. If the installed kind release is
+    # newer than v0.32.0, delete the three 'image:' lines and let kind choose
+    # its own default - node images are not guaranteed to be compatible across
+    # kind releases.
+    image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
+
+    # 'nodeRegistration.name' is the name the kubelet registers with the API
+    # server, which is the name 'kubectl get nodes' displays. It is independent
+    # of the Docker container name, which kind derives from the cluster name.
+    # No 'apiVersion' is given inside the patch on purpose: kind translates an
+    # unversioned patch to whichever kubeadm API version the target Kubernetes
+    # release requires.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          name: control-plane
+
+  # ---------------------------------------------------------------------------
+  # Node 2 of 3: first worker. This is the node that owns the host directory.
+  # The kubeadm object here is JoinConfiguration, because kind runs
+  # 'kubeadm join' on every node after the first control-plane node.
+  # ---------------------------------------------------------------------------
+  - role: worker
+    image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-node-1
+          kubeletExtraArgs:
+            node-labels: "dso202/node-role=worker,dso202/node-index=1"
+
+    # A bind mount from the host into this node's container. Everything written
+    # under /mnt/dso202-static inside the node appears under
+    # /tmp/dso202-p2-storage on the host, and therefore survives
+    # 'kind delete cluster'. Listing 5 places its hostPath volume here.
+    #
+    # Only this node receives the mount, on purpose. Mounting the same host
+    # directory into every node would let two nodes see identical data and
+    # would hide the fact that node-local storage constrains scheduling.
+    extraMounts:
+      - hostPath: /tmp/dso202-p2-storage
+        containerPath: /mnt/dso202-static
+        readOnly: false
+        selinuxRelabel: false
+        propagation: None
+
+  # ---------------------------------------------------------------------------
+  # Node 3 of 3: second worker, with no host mount.
+  # A second worker exists so that Pod placement by the scheduler is visible,
+  # and so that the difference between a Pod that may move and a Pod pinned by
+  # its volume can be observed.
+  # ---------------------------------------------------------------------------
+  - role: worker
+    image: kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          name: worker-node-2
+          kubeletExtraArgs:
+            node-labels: "dso202/node-role=worker,dso202/node-index=2"

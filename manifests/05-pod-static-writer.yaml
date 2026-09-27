@@ -1,0 +1,74 @@
+# =============================================================================
+# File        : manifests/05-pod-static-writer.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : Append one line to a file on the volume at every start, so that
+#               the file's contents record how many Pods have used the volume.
+# Apply with  : kubectl apply -f manifests/05-pod-static-writer.yaml
+# Read with   : kubectl exec static-writer -- cat /data/ledger.txt
+# =============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: static-writer
+  namespace: dso202-practical-02
+  labels:
+    app: static-writer
+    tier: storage-demo
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  # No nodeSelector and no affinity rules appear anywhere in this Pod. It will
+  # still run on worker-node-1, because the volume it mounts exists only there.
+  # Storage constrains scheduling; that is the observation this Pod exists for.
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 5
+
+  containers:
+    - name: writer
+      image: busybox:1.37
+      imagePullPolicy: IfNotPresent
+
+      # 'command' replaces the image entrypoint; 'args' supplies the script.
+      # The '|' block scalar keeps line breaks, which a shell script needs.
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -eu
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) start pod=${POD_NAME} node=${NODE_NAME}" >> /data/ledger.txt
+          # 'exec' replaces the shell with sleep, so the container has a single
+          # process that receives SIGTERM directly on deletion.
+          exec sleep infinity
+
+      # The Pod's own name and node are not known when the manifest is written.
+      # fieldRef reads them from the Pod object at start time.
+      env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+
+      # The path inside this container. It has nothing to do with the path on
+      # the node; the volume definition below decides that.
+      volumeMounts:
+        - name: data
+          mountPath: /data
+
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+
+  # A Pod refers to a claim, never to a volume. This indirection is what allows
+  # the same Pod specification to run against a laptop directory here and a
+  # cloud disk in production, with no change to the Pod.
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: pvc-web-static

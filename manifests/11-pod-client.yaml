@@ -1,0 +1,37 @@
+# =============================================================================
+# File        : manifests/11-pod-client.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : A Pod inside the cluster from which DNS and HTTP can be tested.
+#               Cluster DNS names do not resolve from the host, so this Pod is
+#               the only place the per-Pod names can be observed.
+# Apply with  : kubectl apply -f manifests/11-pod-client.yaml
+# Use with    : kubectl exec client -- nslookup <name>
+#               kubectl exec client -- wget -qO- http://<name>
+# =============================================================================
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client
+  namespace: dso202-practical-02
+  labels:
+    app: client
+    tier: tooling
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  # Deliberately mounts no volume. A troubleshooting Pod that holds no state is
+  # safe to delete and recreate at any point in the practical.
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 5
+  containers:
+    - name: client
+      image: busybox:1.37
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "infinity"]
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi

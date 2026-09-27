@@ -1,0 +1,34 @@
+# =============================================================================
+# File        : manifests/06-pvc-dynamic.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : Ask for storage that does not exist yet. No PersistentVolume is
+#               written by hand anywhere in this practical for this claim; the
+#               provisioner creates one.
+# Apply with  : kubectl apply -f manifests/06-pvc-dynamic.yaml
+# Expect      : STATUS Pending until Listing 9 is applied. That is correct.
+# =============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dynamic-data
+  namespace: dso202-practical-02
+  labels:
+    app: dynamic-writer
+    tier: storage-demo
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  # kind's default class. Naming it explicitly rather than relying on the
+  # cluster default is the practice to follow: a manifest that depends on which
+  # class happens to be marked default behaves differently on every cluster.
+  storageClassName: standard
+
+  resources:
+    requests:
+      # This provisioner records the value and ignores it when creating the
+      # directory, so the container will see the whole node filesystem. A CSI
+      # driver in a cloud provisions a disk of exactly this size.
+      storage: 1Gi

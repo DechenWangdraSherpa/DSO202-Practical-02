@@ -1,0 +1,78 @@
+# =============================================================================
+# File        : manifests/01-quota-and-limits.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : Compute limits as in Practical 1, plus the three storage
+#               constraints that make this practical safe to run on a laptop.
+# Apply with  : kubectl apply -f manifests/01-quota-and-limits.yaml
+# =============================================================================
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dso202-p2-quota
+  namespace: dso202-practical-02
+  labels:
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  hard:
+    # --- Object and compute caps, as in Practical 1 -------------------------
+    pods: "20"
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 6Gi
+
+    # --- Storage caps -------------------------------------------------------
+    # The number of PersistentVolumeClaims that may exist in this namespace.
+    # This is the cap that stops a mistyped 'kubectl scale --replicas=400' on a
+    # StatefulSet from creating four hundred volumes.
+    persistentvolumeclaims: "12"
+
+    # The sum of 'resources.requests.storage' across every claim, regardless of
+    # StorageClass. This practical requests 10Gi in total at its peak.
+    requests.storage: 20Gi
+
+    # A cap scoped to one StorageClass. The key format is
+    #   <storageclass-name>.storageclass.storage.k8s.io/<resource>
+    # which allows an administrator to grant generous quota on cheap storage
+    # and a small quota on expensive storage. Both forms are demonstrated:
+    # total size for one class, and claim count for another.
+    standard.storageclass.storage.k8s.io/requests.storage: 12Gi
+    dso202-retain.storageclass.storage.k8s.io/persistentvolumeclaims: "4"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: dso202-p2-limits
+  namespace: dso202-practical-02
+  labels:
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  limits:
+    # --- Defaults and ceilings for containers ------------------------------
+    # A ResourceQuota that constrains CPU or memory rejects any Pod whose
+    # containers do not state requests and limits. This LimitRange supplies
+    # values for containers that omit them, so a forgotten field produces a
+    # working Pod rather than a rejected one. Every listing below states its
+    # own values anyway, because explicit resources are assessed.
+    - type: Container
+      default:
+        cpu: 200m
+        memory: 128Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+      max:
+        cpu: "1"
+        memory: 1Gi
+
+    # --- Ceiling and floor for a single claim ------------------------------
+    # A LimitRange can also constrain PersistentVolumeClaims. This is the
+    # mechanism that prevents one claim from consuming the whole namespace
+    # quota. The largest claim in this practical is the database, at 2Gi.
+    - type: PersistentVolumeClaim
+      min:
+        storage: 100Mi
+      max:
+        storage: 5Gi

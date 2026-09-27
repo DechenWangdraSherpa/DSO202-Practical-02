@@ -1,0 +1,58 @@
+# =============================================================================
+# File        : manifests/13-service-postgres.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : Two Services for one workload, because they answer two
+#               different questions. Both are needed and neither replaces the
+#               other.
+# Apply with  : kubectl apply -f manifests/13-service-postgres.yaml
+# =============================================================================
+
+# --- Service 1 of 2: headless, for per-Pod identity -------------------------
+# Named in the StatefulSet's serviceName field. Creates:
+#   postgres-0.postgres-headless.dso202-practical-02.svc.cluster.local
+# which addresses one specific database instance. A replication peer, a backup
+# job, or an administrator connecting to a particular replica uses this form.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-headless
+  namespace: dso202-practical-02
+  labels:
+    app: postgres
+    tier: database
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP
+---
+# --- Service 2 of 2: ClusterIP, for applications ----------------------------
+# An ordinary Service with a virtual address. An application's connection
+# string names this Service, so the application does not need to know how many
+# replicas exist or which ordinal is currently serving. This is the name the
+# Task Tracker application from Assignment 1 would use as its database host.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: dso202-practical-02
+  labels:
+    app: postgres
+    tier: database
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  type: ClusterIP
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+      protocol: TCP

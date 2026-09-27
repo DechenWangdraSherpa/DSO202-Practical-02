@@ -1,0 +1,45 @@
+# =============================================================================
+# File        : manifests/09-service-webnote.yaml
+# Practical   : DSO202 Practical 2
+# Purpose     : Publish one DNS record per Pod of the webnote StatefulSet.
+#               Applied BEFORE the StatefulSet, so that the Pods are
+#               addressable from the moment they are ready.
+# Apply with  : kubectl apply -f manifests/09-service-webnote.yaml
+# Verify      : kubectl get service webnote   (CLUSTER-IP must read None)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  # This name becomes part of every Pod's DNS name and must equal the
+  # 'serviceName' field of the StatefulSet in Listing 12:
+  #   webnote-0.webnote.dso202-practical-02.svc.cluster.local
+  #   <pod>    .<service>.<namespace>        .svc.cluster.local
+  name: webnote
+  namespace: dso202-practical-02
+  labels:
+    app: webnote
+    tier: frontend
+    dso202/practical: "02"
+    dso202/managed-by: declarative
+spec:
+  # This single field is what makes the Service headless. No virtual IP is
+  # allocated and no load balancing occurs; DNS returns the Pod addresses
+  # themselves, one record per Pod, plus one record for the set.
+  clusterIP: None
+
+  selector:
+    app: webnote
+
+  ports:
+    - name: http
+      port: 80
+      # Named rather than numeric. The Pod template may change its container
+      # port without this file changing, provided the name still exists.
+      targetPort: http
+      protocol: TCP
+
+  # false is the default, and means only Pods that are Ready appear in DNS.
+  # Databases that must discover their peers during startup, before any member
+  # can pass a readiness probe, set this to true. Stated explicitly because the
+  # choice is a design decision rather than an oversight.
+  publishNotReadyAddresses: false
